@@ -1,0 +1,31 @@
+{
+  "configurations": [
+    {
+      "name": "Flutter Windows",
+      "includePath": [
+        "${workspaceFolder}/windows",
+        "${workspaceFolder}/windows/flutter",
+        "${workspaceFolder}/windows/flutter/ephemeral",
+        "${workspaceFolder}/windows/flutter/ephemeral/cpp_client_wrapper/include",
+        "${workspaceFolder}/windows/flutter/ephemeral/.plugin_symlinks/**/windows/include"
+      ],
+      "defines": [
+        "UNICODE",
+        "_UNICODE"
+      ],
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "browse": {
+        "path": [
+          "${workspaceFolder}/windows",
+          "${workspaceFolder}/windows/flutter",
+          "${workspaceFolder}/windows/flutter/ephemeral",
+          "${workspaceFolder}/windows/flutter/ephemeral/cpp_client_wrapper/include",
+          "${workspaceFolder}/windows/flutter/ephemeral/.plugin_symlinks/**/windows/include"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    }
+  ],
+  "version": 4
+}
