@@ -365,6 +365,7 @@ class _DashboardPageState extends State<DashboardPage> {
   Set<String> closeFriendsNotFollowingBack = {};
   Set<String> blockedAccounts = {};
   final Set<String> visitedProfiles = {};
+  final Set<String> notFoundAccounts = {};
   final Set<String> selectedReviewAccounts = {};
   Map<String, dynamic> _lists = const {};
   Map<String, int> followerTimestamps = const {};
@@ -423,6 +424,8 @@ class _DashboardPageState extends State<DashboardPage> {
       final encoded = prefs.getString('socialscope.data.v1');
       final savedVisited =
           prefs.getStringList('socialscope.visited.v1') ?? const <String>[];
+      final savedNotFound =
+          prefs.getStringList('socialscope.notFound.v1') ?? const <String>[];
       final savedImportMillis = prefs.getInt('socialscope.lastImportAt.v1');
       final savedTab = prefs.getInt('socialscope.defaultTab.v1') ?? 0;
       final savedSort = prefs.getInt('socialscope.defaultSort.v1') ?? 0;
@@ -434,7 +437,7 @@ class _DashboardPageState extends State<DashboardPage> {
       if (!mounted) return;
       setState(() {
         _applyLists(lists, clearVisited: false);
-        defaultTab = savedTab.clamp(0, 8);
+        defaultTab = savedTab.clamp(0, 9);
         defaultSortMode = savedSort.clamp(0, 5);
         sortMode = defaultSortMode;
         followDateDisplay =
@@ -442,8 +445,11 @@ class _DashboardPageState extends State<DashboardPage> {
             ? savedDateDisplay
             : 'days';
         selectedTab = defaultTab;
-        _visibleUsers = _sortUsers(_listForTab(selectedTab));
         visitedProfiles.addAll(savedVisited);
+        notFoundAccounts
+          ..clear()
+          ..addAll(savedNotFound.map((username) => username.toLowerCase()));
+        _visibleUsers = _sortUsers(_listForTab(selectedTab));
         lastImportAt = savedImportMillis == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(savedImportMillis);
@@ -468,6 +474,7 @@ class _DashboardPageState extends State<DashboardPage> {
     });
     await prefs.setString('socialscope.data.v1', encoded);
     await prefs.setStringList('socialscope.visited.v1', const <String>[]);
+    await prefs.setStringList('socialscope.notFound.v1', const <String>[]);
     await prefs.setInt(
       'socialscope.lastImportAt.v1',
       importedAt.millisecondsSinceEpoch,
@@ -492,7 +499,7 @@ class _DashboardPageState extends State<DashboardPage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Clear saved data?'),
         content: const Text(
-          'This removes your imported lists, last upload time, and opened-profile marks from this device.',
+          'This removes your imported lists, last upload time, opened-profile marks, and Not found list from this device.',
         ),
         actions: [
           TextButton(
@@ -515,6 +522,7 @@ class _DashboardPageState extends State<DashboardPage> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('socialscope.data.v1');
       await prefs.remove('socialscope.visited.v1');
+      await prefs.remove('socialscope.notFound.v1');
       await prefs.remove('socialscope.lastImportAt.v1');
       if (!mounted) return;
       setState(() {
@@ -522,6 +530,7 @@ class _DashboardPageState extends State<DashboardPage> {
           _buildComparisonLists(const <String, int>{}, const <String, int>{}),
         );
         visitedProfiles.clear();
+        notFoundAccounts.clear();
         lastImportAt = null;
         selectedTab = 0;
         query = '';
@@ -559,6 +568,7 @@ class _DashboardPageState extends State<DashboardPage> {
         'createdAt': DateTime.now().toUtc().toIso8601String(),
         'data': data,
         'visitedProfiles': visitedProfiles.toList()..sort(),
+        'notFoundAccounts': notFoundAccounts.toList()..sort(),
         'lastImportAt': prefs.getInt('socialscope.lastImportAt.v1'),
       });
       final file = await FilePicker.saveFile(
@@ -600,6 +610,11 @@ class _DashboardPageState extends State<DashboardPage> {
           (backup['visitedProfiles'] as List<dynamic>? ?? const <dynamic>[])
               .whereType<String>()
               .toSet();
+      final savedNotFound =
+          (backup['notFoundAccounts'] as List<dynamic>? ?? const <dynamic>[])
+              .whereType<String>()
+              .map((username) => username.toLowerCase())
+              .toSet();
       final savedImportMillis = backup['lastImportAt'] is num
           ? (backup['lastImportAt'] as num).toInt()
           : null;
@@ -608,6 +623,10 @@ class _DashboardPageState extends State<DashboardPage> {
       await prefs.setStringList(
         'socialscope.visited.v1',
         savedVisited.toList()..sort(),
+      );
+      await prefs.setStringList(
+        'socialscope.notFound.v1',
+        savedNotFound.toList()..sort(),
       );
       if (savedImportMillis == null) {
         await prefs.remove('socialscope.lastImportAt.v1');
@@ -622,10 +641,14 @@ class _DashboardPageState extends State<DashboardPage> {
         visitedProfiles
           ..clear()
           ..addAll(savedVisited);
+        notFoundAccounts
+          ..clear()
+          ..addAll(savedNotFound);
         lastImportAt = savedImportMillis == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(savedImportMillis);
         selectedTab = 0;
+        _visibleUsers = _sortUsers(_listForTab(selectedTab));
         query = '';
         activePage = 0;
       });
@@ -651,21 +674,33 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  List<String> _listForTab(int tab) => _strings(_lists, switch (tab) {
-    1 => 'followers',
-    2 => 'following',
-    3 => 'notFollowingBack',
-    4 => 'notFollowedBack',
-    5 => 'mutuals',
-    6 => 'closeFriends',
-    7 => 'closeFriendsNotFollowingBack',
-    8 => 'blockedAccounts',
-    _ => 'all',
-  });
+  List<String> _listForTab(int tab) {
+    if (tab == 9) return notFoundAccounts.toList()..sort();
+    return _strings(_lists, switch (tab) {
+          1 => 'followers',
+          2 => 'following',
+          3 => 'notFollowingBack',
+          4 => 'notFollowedBack',
+          5 => 'mutuals',
+          6 => 'closeFriends',
+          7 => 'closeFriendsNotFollowingBack',
+          8 => 'blockedAccounts',
+          _ => 'all',
+        })
+        .where((username) => !notFoundAccounts.contains(username.toLowerCase()))
+        .toList();
+  }
+
+  int _visibleCount(Iterable<String> usernames) => usernames
+      .where((username) => !notFoundAccounts.contains(username.toLowerCase()))
+      .length;
 
   List<String> _sortUsers(List<String> users) {
     final sorted = List<String>.of(users);
     sorted.sort((left, right) {
+      final leftOpened = visitedProfiles.contains(left.toLowerCase());
+      final rightOpened = visitedProfiles.contains(right.toLowerCase());
+      if (leftOpened != rightOpened) return leftOpened ? 1 : -1;
       if (sortMode == 0 || sortMode == 1) {
         final comparison = left.toLowerCase().compareTo(right.toLowerCase());
         return sortMode == 0 ? comparison : -comparison;
@@ -711,6 +746,34 @@ class _DashboardPageState extends State<DashboardPage> {
       await (await SharedPreferences.getInstance()).setInt(
         'socialscope.defaultTab.v1',
         tab,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _toggleNotFoundAccount(String username) async {
+    final normalized = username.toLowerCase();
+    await _setNotFoundAccount(username, !notFoundAccounts.contains(normalized));
+  }
+
+  Future<void> _setNotFoundAccount(String username, bool marked) async {
+    final normalized = username.toLowerCase();
+    setState(() {
+      if (marked) {
+        notFoundAccounts.add(normalized);
+      } else {
+        notFoundAccounts.remove(normalized);
+      }
+      final needle = query.trim().toLowerCase();
+      _visibleUsers = _sortUsers(
+        _listForTab(selectedTab).where((account) {
+          return needle.isEmpty || account.toLowerCase().contains(needle);
+        }).toList(),
+      );
+    });
+    try {
+      await (await SharedPreferences.getInstance()).setStringList(
+        'socialscope.notFound.v1',
+        notFoundAccounts.toList()..sort(),
       );
     } catch (_) {}
   }
@@ -772,7 +835,7 @@ class _DashboardPageState extends State<DashboardPage> {
     try {
       await _saveData(result, importedAt);
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -780,14 +843,16 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
         );
+      }
       return;
     }
     _queryDebounce?.cancel();
     _filterRequest++;
     setState(() {
+      notFoundAccounts.clear();
       _applyLists(result.lists);
-      _visibleUsers = _sortUsers(_visibleUsers);
       selectedTab = 0;
+      _visibleUsers = _sortUsers(_listForTab(selectedTab));
       selectedReviewAccounts.clear();
       query = '';
       lastImportAt = importedAt;
@@ -796,7 +861,7 @@ class _DashboardPageState extends State<DashboardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Imported ${followers.length} followers and ${following.length} following.',
+            'Imported ${followers.length} followers and ${following.length} following. Previous Not found marks were cleared.',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -807,8 +872,14 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _openInstagramProfile(String username) async {
     final cleanUsername = username.replaceAll('@', '');
     final normalized = cleanUsername.toLowerCase();
-    if (visitedProfiles.add(normalized)) {
-      setState(() {});
+    final newlyOpened = visitedProfiles.add(normalized);
+    final wasSelected = selectedReviewAccounts.remove(username);
+    if (newlyOpened || wasSelected) {
+      setState(() {
+        _visibleUsers = _sortUsers(_visibleUsers);
+      });
+    }
+    if (newlyOpened) {
       unawaited(_saveVisitedProfiles());
     }
     final appProfile = Uri(
@@ -850,13 +921,18 @@ class _DashboardPageState extends State<DashboardPage> {
     if (!mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) =>
-          _ReviewQueueDialog(accounts: queue, onOpen: _openInstagramProfile),
+      builder: (dialogContext) => _ReviewQueueDialog(
+        accounts: queue,
+        notFoundAccounts: notFoundAccounts,
+        onOpen: _openInstagramProfile,
+        onSetNotFound: _setNotFoundAccount,
+      ),
     );
     if (mounted) setState(() {});
   }
 
   void _toggleReviewAccount(String username, bool selected) {
+    if (selected && visitedProfiles.contains(username.toLowerCase())) return;
     setState(() {
       if (selected) {
         selectedReviewAccounts.add(username);
@@ -868,13 +944,16 @@ class _DashboardPageState extends State<DashboardPage> {
 
   void _toggleAllVisibleReviewAccounts() {
     setState(() {
+      final unopenedUsers = _visibleUsers
+          .where((user) => !visitedProfiles.contains(user.toLowerCase()))
+          .toList();
       final allVisibleSelected =
-          _visibleUsers.isNotEmpty &&
-          _visibleUsers.every(selectedReviewAccounts.contains);
+          unopenedUsers.isNotEmpty &&
+          unopenedUsers.every(selectedReviewAccounts.contains);
       if (allVisibleSelected) {
-        selectedReviewAccounts.removeAll(_visibleUsers);
+        selectedReviewAccounts.removeAll(unopenedUsers);
       } else {
-        selectedReviewAccounts.addAll(_visibleUsers);
+        selectedReviewAccounts.addAll(unopenedUsers);
       }
     });
   }
@@ -1022,7 +1101,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                                   final cards = [
                                                     _StatCard(
                                                       label: 'Followers',
-                                                      value: followers.length,
+                                                      value: _visibleCount(
+                                                        followers,
+                                                      ),
                                                       icon: Icons
                                                           .people_alt_outlined,
                                                       color: const Color(
@@ -1036,7 +1117,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     ),
                                                     _StatCard(
                                                       label: 'Following',
-                                                      value: following.length,
+                                                      value: _visibleCount(
+                                                        following,
+                                                      ),
                                                       icon: Icons
                                                           .person_add_alt_1_outlined,
                                                       color: const Color(
@@ -1051,8 +1134,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     _StatCard(
                                                       label:
                                                           'Don’t follow back',
-                                                      value: notFollowingBack
-                                                          .length,
+                                                      value: _visibleCount(
+                                                        notFollowingBack,
+                                                      ),
                                                       icon: Icons
                                                           .person_remove_alt_1_outlined,
                                                       color: const Color(
@@ -1066,8 +1150,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     ),
                                                     _StatCard(
                                                       label: 'You don’t follow back',
-                                                      value: notFollowedBack
-                                                          .length,
+                                                      value: _visibleCount(
+                                                        notFollowedBack,
+                                                      ),
                                                       icon: Icons
                                                           .person_add_alt_1_outlined,
                                                       color: const Color(
@@ -1081,7 +1166,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     ),
                                                     _StatCard(
                                                       label: 'Mutuals',
-                                                      value: mutuals.length,
+                                                      value: _visibleCount(
+                                                        mutuals,
+                                                      ),
                                                       icon: Icons
                                                           .sync_alt_rounded,
                                                       color: const Color(
@@ -1095,8 +1182,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     ),
                                                     _StatCard(
                                                       label: 'Close friends',
-                                                      value:
-                                                          closeFriends.length,
+                                                      value: _visibleCount(
+                                                        closeFriends,
+                                                      ),
                                                       icon: Icons
                                                           .star_outline_rounded,
                                                       color: const Color(
@@ -1110,9 +1198,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     ),
                                                     _StatCard(
                                                       label: 'Close friends not following back',
-                                                      value:
-                                                          closeFriendsNotFollowingBack
-                                                              .length,
+                                                      value: _visibleCount(
+                                                        closeFriendsNotFollowingBack,
+                                                      ),
                                                       icon: Icons
                                                           .person_remove_alt_1_outlined,
                                                       color: const Color(
@@ -1126,8 +1214,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                                     ),
                                                     _StatCard(
                                                       label: 'Blocked accounts',
-                                                      value: blockedAccounts
-                                                          .length,
+                                                      value: _visibleCount(
+                                                        blockedAccounts,
+                                                      ),
                                                       icon:
                                                           Icons.block_outlined,
                                                       color: const Color(
@@ -1138,6 +1227,21 @@ class _DashboardPageState extends State<DashboardPage> {
                                                       ),
                                                       onTap: () =>
                                                           _selectList(8),
+                                                    ),
+                                                    _StatCard(
+                                                      label: 'Not found',
+                                                      value: notFoundAccounts
+                                                          .length,
+                                                      icon: Icons
+                                                          .person_off_outlined,
+                                                      color: const Color(
+                                                        0xFF9E4141,
+                                                      ),
+                                                      tint: const Color(
+                                                        0xFFFFEEEE,
+                                                      ),
+                                                      onTap: () =>
+                                                          _selectList(9),
                                                     ),
                                                   ];
                                                   return GridView.count(
@@ -1167,6 +1271,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                                 onImport: _openImport,
                                                 selectedAccounts:
                                                     selectedReviewAccounts,
+                                                openedAccounts: visitedProfiles,
                                                 onToggleAll:
                                                     _toggleAllVisibleReviewAccounts,
                                                 onToggleAccount:
@@ -1184,6 +1289,8 @@ class _DashboardPageState extends State<DashboardPage> {
                                                 canClear:
                                                     hasData ||
                                                     visitedProfiles
+                                                        .isNotEmpty ||
+                                                    notFoundAccounts
                                                         .isNotEmpty ||
                                                     lastImportAt != null,
                                                 defaultTab: defaultTab,
@@ -1297,7 +1404,11 @@ class _DashboardPageState extends State<DashboardPage> {
                                                   followingTimestamps[user],
                                               followDateDisplay:
                                                   followDateDisplay,
-                                              selectable: selectedTab == 3,
+                                              selectable:
+                                                  selectedTab == 3 &&
+                                                  !visitedProfiles.contains(
+                                                    user.toLowerCase(),
+                                                  ),
                                               isSelected: selectedReviewAccounts
                                                   .contains(user),
                                               onSelectionChanged: (selected) =>
@@ -1308,6 +1419,10 @@ class _DashboardPageState extends State<DashboardPage> {
                                               marked: visitedProfiles.contains(
                                                 user.toLowerCase(),
                                               ),
+                                              notFound: notFoundAccounts
+                                                  .contains(user.toLowerCase()),
+                                              onToggleNotFound: () =>
+                                                  _toggleNotFoundAccount(user),
                                               onOpen: () =>
                                                   _openInstagramProfile(user),
                                             ),
@@ -1514,7 +1629,7 @@ class _SettingsPanel extends StatelessWidget {
         _settingsHeading(context, 'Privacy'),
         const SizedBox(height: 8),
         Text(
-          'Analysis runs on this device. Your imported lists stay in local app storage unless you choose to save a backup. SocialScope does not ask for your Instagram password.',
+          'Analysis and imported lists stay on this device. When you open a profile, you can manually mark the result after returning from Instagram. SocialScope never asks for your password.',
           style: TextStyle(
             color: _secondaryText(context),
             fontSize: 12,
@@ -1595,7 +1710,7 @@ class _PrivacyPolicyDialog extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Last updated: November 5, 2026',
+              'Last updated: November 11, 2026',
               style: TextStyle(color: _secondaryText(context), fontSize: 12),
             ),
             const SizedBox(height: 16),
@@ -1607,12 +1722,12 @@ class _PrivacyPolicyDialog extends StatelessWidget {
             _privacySection(
               context,
               'Data processed and stored',
-              'The lists you import, follow timestamps, last import time, theme and display preferences, and profile links you open are stored locally on this device. SocialScope processes imported lists on your device and does not send them to a SocialScope server.',
+              'The lists you import, follow timestamps, last import time, theme and display preferences, profile links you open, and accounts you mark as not found are stored locally on this device. SocialScope does not send your imported lists to its own server.',
             ),
             _privacySection(
               context,
               'Instagram access',
-              'SocialScope does not request your Instagram password and does not log in to or fetch data directly from Instagram. You choose and provide an Instagram data export. Opening a profile takes you to Instagram using the link you selected.',
+              'SocialScope does not request your Instagram password or log in to your account. You choose and provide an Instagram data export. You can manually mark an account as not found from the account list or review dialog after checking it in Instagram.',
             ),
             _privacySection(
               context,
@@ -2007,6 +2122,7 @@ class _PeoplePanel extends StatelessWidget {
     required this.onQuery,
     required this.onImport,
     required this.selectedAccounts,
+    required this.openedAccounts,
     required this.onToggleAll,
     required this.onToggleAccount,
     required this.onOpenSelected,
@@ -2020,6 +2136,7 @@ class _PeoplePanel extends StatelessWidget {
   final ValueChanged<String> onQuery;
   final VoidCallback onImport;
   final Set<String> selectedAccounts;
+  final Set<String> openedAccounts;
   final VoidCallback onToggleAll;
   final void Function(String username, bool selected) onToggleAccount;
   final VoidCallback onOpenSelected;
@@ -2033,6 +2150,7 @@ class _PeoplePanel extends StatelessWidget {
     'Close friends',
     'Close friends not following back',
     'Blocked accounts',
+    'Not found',
   ];
   static const sortLabels = [
     'Name A–Z',
@@ -2058,36 +2176,46 @@ class _PeoplePanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (selectedTab == 3 && hasData)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 4,
-              runSpacing: 0,
-              children: [
-                TextButton(
-                  onPressed: users.isEmpty ? null : onToggleAll,
-                  child: Text(
-                    users.isNotEmpty && users.every(selectedAccounts.contains)
-                        ? 'Deselect all'
-                        : 'Select all',
-                  ),
+          Builder(
+            builder: (context) {
+              final unopenedUsers = users
+                  .where((user) => !openedAccounts.contains(user.toLowerCase()))
+                  .toList();
+              final allUnopenedSelected =
+                  unopenedUsers.isNotEmpty &&
+                  unopenedUsers.every(selectedAccounts.contains);
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 4,
+                  runSpacing: 0,
+                  children: [
+                    TextButton(
+                      onPressed: unopenedUsers.isEmpty ? null : onToggleAll,
+                      child: Text(
+                        allUnopenedSelected ? 'Deselect all' : 'Select all',
+                      ),
+                    ),
+                    Text(
+                      '${selectedAccounts.length} selected',
+                      style: TextStyle(
+                        color: _secondaryText(context),
+                        fontSize: 12,
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: selectedAccounts.isEmpty
+                          ? null
+                          : onOpenSelected,
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: const Text('Review selected'),
+                    ),
+                  ],
                 ),
-                Text(
-                  '${selectedAccounts.length} selected',
-                  style: TextStyle(
-                    color: _secondaryText(context),
-                    fontSize: 12,
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: selectedAccounts.isEmpty ? null : onOpenSelected,
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Review selected'),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         Padding(
           padding: const EdgeInsets.fromLTRB(22, 20, 22, 14),
@@ -2269,6 +2397,36 @@ class _PeoplePanel extends StatelessWidget {
               ),
             ),
           ),
+        if (hasData && selectedTab == 9)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 12, 22, 0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: _secondaryText(context),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Open profiles in Instagram, then manually mark unavailable accounts as not found from the account row or review dialog. Marked accounts are hidden from other lists and counts.',
+                      style: TextStyle(
+                        color: _secondaryText(context),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         Divider(height: 20, color: _surfaceBorder(context)),
         if (!hasData)
           Padding(
@@ -2280,7 +2438,9 @@ class _PeoplePanel extends StatelessWidget {
             padding: const EdgeInsets.all(32),
             child: Center(
               child: Text(
-                selectedTab == 6 || selectedTab == 7
+                selectedTab == 9
+                    ? 'No accounts marked as not found yet. Open a profile from an account list and confirm its status when you return to the app.'
+                    : selectedTab == 6 || selectedTab == 7
                     ? 'No Close Friends entries found. Include Close Friends in your Instagram export if that option is available.'
                     : selectedTab == 8
                     ? 'No blocked accounts found in this export. Include blocked profiles in your Instagram export if available.'
@@ -2386,16 +2546,19 @@ class _UserRow extends StatelessWidget {
     required this.isSelected,
     required this.onSelectionChanged,
     required this.marked,
+    required this.notFound,
+    required this.onToggleNotFound,
     required this.onOpen,
   });
   final String user;
-  final bool followsYou, youFollow, blocked, marked;
+  final bool followsYou, youFollow, blocked, marked, notFound;
   final int? daysFollowedYou, daysYouFollow;
   final int? followerTimestamp, followingTimestamp;
   final String followDateDisplay;
   final bool selectable, isSelected;
   final ValueChanged<bool> onSelectionChanged;
   final VoidCallback onOpen;
+  final VoidCallback onToggleNotFound;
   @override
   Widget build(BuildContext context) {
     final initials = user.replaceAll('@', '').characters.first.toUpperCase();
@@ -2502,6 +2665,20 @@ class _UserRow extends StatelessWidget {
                   size: 17,
                 ),
               IconButton(
+                onPressed: onToggleNotFound,
+                tooltip: notFound
+                    ? 'Remove from Not found list'
+                    : 'Mark as not found after checking Instagram',
+                icon: Icon(
+                  notFound ? Icons.person_off : Icons.person_off_outlined,
+                  color: notFound
+                      ? const Color(0xFF9E4141)
+                      : _secondaryText(context),
+                  size: 17,
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
                 onPressed: onOpen,
                 tooltip: marked
                     ? 'Reopen Instagram profile'
@@ -2518,9 +2695,16 @@ class _UserRow extends StatelessWidget {
 }
 
 class _ReviewQueueDialog extends StatefulWidget {
-  const _ReviewQueueDialog({required this.accounts, required this.onOpen});
+  const _ReviewQueueDialog({
+    required this.accounts,
+    required this.notFoundAccounts,
+    required this.onOpen,
+    required this.onSetNotFound,
+  });
   final List<String> accounts;
+  final Set<String> notFoundAccounts;
   final ValueChanged<String> onOpen;
+  final Future<void> Function(String username, bool marked) onSetNotFound;
   @override
   State<_ReviewQueueDialog> createState() => _ReviewQueueDialogState();
 }
@@ -2528,6 +2712,7 @@ class _ReviewQueueDialog extends StatefulWidget {
 class _ReviewQueueDialogState extends State<_ReviewQueueDialog> {
   int index = 0;
   bool openedCurrent = false;
+  bool updatingNotFound = false;
 
   Future<void> _openCurrent() async {
     widget.onOpen(widget.accounts[index]);
@@ -2545,58 +2730,219 @@ class _ReviewQueueDialogState extends State<_ReviewQueueDialog> {
     });
   }
 
+  Future<void> _toggleNotFound(String username) async {
+    final normalized = username.toLowerCase();
+    final marked = !widget.notFoundAccounts.contains(normalized);
+    setState(() => updatingNotFound = true);
+    await widget.onSetNotFound(username, marked);
+    if (mounted) setState(() => updatingNotFound = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final username = widget.accounts[index];
-    return AlertDialog(
-      title: const Text('Review accounts'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Account ${index + 1} of ${widget.accounts.length}',
-              style: TextStyle(color: _secondaryText(context), fontSize: 12),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '@$username',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: _primaryText(context),
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              openedCurrent
-                  ? 'Profile opened. Review it in Instagram, then continue here.'
-                  : 'Open this profile in Instagram to review it.',
-              style: TextStyle(color: _secondaryText(context), fontSize: 12),
-            ),
-          ],
+    final isNotFound = widget.notFoundAccounts.contains(username.toLowerCase());
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final progress = (index + 1) / widget.accounts.length;
+    final initials = username
+        .replaceAll('@', '')
+        .characters
+        .first
+        .toUpperCase();
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 500,
+          maxHeight: MediaQuery.sizeOf(context).height * .88,
         ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Finish'),
-        ),
-        OutlinedButton.icon(
-          onPressed: _openCurrent,
-          icon: const Icon(Icons.open_in_new),
-          label: const Text('Open profile'),
-        ),
-        FilledButton(
-          onPressed: _next,
-          child: Text(
-            index + 1 == widget.accounts.length ? 'Done' : 'Next account',
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        gradient: LinearGradient(
+                          colors: [colors.primary, colors.tertiary],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.groups_2_outlined,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Review accounts',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            'Check profiles one at a time',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: _secondaryText(context),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close review',
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Account ${index + 1} of ${widget.accounts.length}',
+                      style: theme.textTheme.labelLarge,
+                    ),
+                    Text(
+                      '${(progress * 100).round()}%',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: _secondaryText(context),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 6,
+                    backgroundColor: colors.surfaceContainerHighest,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 24,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colors.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: _surfaceBorder(context)),
+                  ),
+                  child: Column(
+                    children: [
+                      CircleAvatar(
+                        radius: 34,
+                        backgroundColor: colors.primaryContainer,
+                        child: Text(
+                          initials,
+                          style: theme.textTheme.headlineSmall?.copyWith(
+                            color: colors.onPrimaryContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        '@$username',
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        openedCurrent
+                            ? 'Profile opened. Review it in Instagram, then continue here.'
+                            : 'Review this profile in Instagram. If Instagram says the user could not be found, mark it here.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: _secondaryText(context),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: _openCurrent,
+                            icon: const Icon(Icons.open_in_new),
+                            label: const Text('Open profile'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: updatingNotFound
+                                ? null
+                                : () => _toggleNotFound(username),
+                            icon: Icon(
+                              isNotFound
+                                  ? Icons.person_off
+                                  : Icons.person_off_outlined,
+                            ),
+                            label: Text(
+                              isNotFound
+                                  ? 'Marked not found'
+                                  : 'Mark not found',
+                            ),
+                          ),
+                          FilledButton.tonalIcon(
+                            onPressed: _next,
+                            icon: const Icon(Icons.check),
+                            label: const Text('Done'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 230),
+                      child: Text(
+                        'Opened profiles move to the bottom of your list.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: _secondaryText(context),
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Finish'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -2629,7 +2975,7 @@ class _PrivacyNote extends StatelessWidget {
       const SizedBox(width: 8),
       Expanded(
         child: Text(
-          'Your lists stay on this device. SocialScope never asks for your Instagram password or connects to your account.',
+          'Your lists stay on this device. Profile results are confirmed manually after you return from Instagram; SocialScope never asks for your password or logs in.',
           style: TextStyle(
             color: _secondaryText(context),
             fontSize: 11,
